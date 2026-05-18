@@ -1,6 +1,6 @@
 # 🤖 Siver WX机器人 (wxbot_plus)
 
-[![Version](https://img.shields.io/badge/version-V4.7.25-blue.svg)](https://github.com/SiverKing/SiverWXbot_plus)
+[![Version](https://img.shields.io/badge/version-V4.7.26-blue.svg)](https://github.com/SiverKing/SiverWXbot_plus)
 [![Python](https://img.shields.io/badge/python-3.9+-green.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
@@ -241,6 +241,7 @@ python web_server.py
     "admin": "文件传输助手",
     "AllListen_switch": false,
     "AllListen_filter_mute": true,
+    "chat_listen_only": false,
     "listen_list": ["用户1", "用户2"],
     "group": ["群聊1", "群聊2"],
     "group_api_map": {
@@ -257,8 +258,12 @@ python web_server.py
     "chat_api_map": {
         "张三": 1
     },
+    "chat_max_round_map": {
+        "张三": 20
+    },
     "default_prompt": "默认",
     "group_switch": true,
+    "group_listen_only": false,
     "group_reply_at": true,
     "group_reply_at_msg": true,
     "group_reply_quote": false,
@@ -270,8 +275,11 @@ python web_server.py
     "new_friend_msg": ["你好，我是机器人", "C:\\图片\\welcome.png"],
     "new_friend_check_min": 60,
     "new_friend_check_max": 300,
+    "new_friend_remark_use_nickname": true,
     "new_friend_remark_prefix": "",
+    "new_friend_remark_prefix_timestamp": false,
     "new_friend_remark_suffix": "_机器人备注",
+    "new_friend_remark_suffix_timestamp": false,
     "new_friend_tags": [],
     "chat_keyword_switch": true,
     "group_keyword_switch": true,
@@ -284,6 +292,7 @@ python web_server.py
     "custom_forward_list": [
         {
             "id": "abc123",
+            "all_sources": false,
             "sources": ["群聊1", "张三"],
             "type": "keyword",
             "keywords": ["重要", "紧急"],
@@ -329,16 +338,23 @@ python web_server.py
     "everyday_start_bot_time": "08:00",
     "everyday_stop_bot_time": "23:00",
     "memory_switch": true,
-    "memory_max_count": 500,
-    "memory_context_count": 100,
+    "memory_max_count": 3000,
+    "memory_context_count": 1000,
     "reply_delay_switch": true,
     "reply_delay_min": 1,
     "reply_delay_max": 5,
+    "clean_ai_reply_switch": true,
     "chat_image_recognition_switch": false,
     "chat_image_recognition_api": 0,
     "group_image_recognition_switch": false,
     "group_image_recognition_api": 0,
     "api_error_reply": "在忙，我稍后回复您",
+    "api_error_reply_once": false,
+    "chat_max_round_switch": false,
+    "chat_max_round_default": 99,
+    "chat_max_round_reset_days": 0,
+    "chat_max_round_reply": "",
+    "chat_max_round_reply_once": false,
     "chat_split_reply_switch": false,
     "chat_split_max_chars": 100,
     "chat_split_max_count": 4,
@@ -359,14 +375,17 @@ python web_server.py
 | `admin` | string | `"文件传输助手"` | 管理员昵称，可发送管理命令 |
 | `AllListen_switch` | boolean | `false` | `false`=白名单模式，`true`=黑名单（全局）模式 |
 | `AllListen_filter_mute` | boolean | `true` | 全局监听模式下是否过滤免打扰会话（`true`=跳过被静音的聊天窗口） |
+| `chat_listen_only` | boolean | `false` | 私聊只监听不 AI 回复；监听、记忆、关键词回复和自定义转发仍正常运行 |
 | `listen_list` | array | `[]` | 白名单/黑名单用户列表 |
 | `group` | array | `[]` | 监听的群聊列表 |
 | `group_api_map` | object | `{}` | 群组专属接口映射，格式 `{"群名": 接口索引}`；未配置的群使用默认接口 |
 | `group_prompt_map` | object | `{}` | 群组专属 Prompt 映射，格式 `{"群名": "Prompt文件名"}`；未配置的群使用 `default_prompt` |
 | `chat_prompt_map` | object | `{}` | 私聊白名单用户专属 Prompt 映射，格式 `{"用户昵称": "Prompt文件名"}` |
 | `chat_api_map` | object | `{}` | 私聊白名单用户专属接口映射，格式 `{"用户昵称": 接口索引}` |
+| `chat_max_round_map` | object | `{}` | 私聊白名单用户专属回复轮数上限，格式 `{"用户昵称": 次数}`；留空使用全局上限 |
 | `default_prompt` | string | `"默认"` | 全局默认 Prompt 文件名（不含 `.md`），对应 `config/prompt/{名称}.md` |
-| `group_switch` | boolean | `false` | 群机器人总开关 |
+| `group_switch` | boolean | `false` | 群聊监听/回复总开关；关闭后群组列表不会注册监听 |
+| `group_listen_only` | boolean | `false` | 群聊只监听不 AI 回复；监听、记忆、关键词回复和自定义转发仍正常运行 |
 | `group_reply_at` | boolean | `false` | 是否仅在被 @ 时回复群消息 |
 | `group_reply_at_msg` | boolean | `true` | 群聊回复时是否 @ 发言人 |
 | `group_reply_quote` | boolean | `false` | 群聊回复时是否引用原消息（多条回复仅首条引用） |
@@ -378,8 +397,11 @@ python web_server.py
 | `new_friend_msg` | array | `[]` | 打招呼消息列表，支持文字或图片绝对路径 |
 | `new_friend_check_min` | integer | `60` | 检查新好友请求的最小间隔（秒，60~3600） |
 | `new_friend_check_max` | integer | `300` | 检查新好友请求的最大间隔（秒，≥min，上限 3600） |
+| `new_friend_remark_use_nickname` | boolean | `true` | 通过好友后设置备注时是否使用对方昵称作为主体 |
 | `new_friend_remark_prefix` | string | `""` | 通过好友后自动设置备注的前缀（备注 = 前缀 + 昵称 + 后缀） |
+| `new_friend_remark_prefix_timestamp` | boolean | `false` | 备注前缀后是否追加时间戳 |
 | `new_friend_remark_suffix` | string | `"_机器人备注"` | 通过好友后自动设置备注的后缀 |
+| `new_friend_remark_suffix_timestamp` | boolean | `false` | 备注后缀后是否追加时间戳 |
 | `new_friend_tags` | array | `[]` | 通过好友后自动设置的标签列表，需填写微信中已存在的标签名 |
 | `chat_keyword_switch` | boolean | `false` | 是否开启私聊关键词回复 |
 | `group_keyword_switch` | boolean | `false` | 是否开启群聊关键词回复 |
@@ -402,16 +424,23 @@ python web_server.py
 | `everyday_start_bot_time` | string | `"08:00"` | 每日自动启动时间（格式 `HH:MM`） |
 | `everyday_stop_bot_time` | string | `"23:00"` | 每日自动停止时间（格式 `HH:MM`） |
 | `memory_switch` | boolean | `true` | 是否开启对话记忆 |
-| `memory_max_count` | integer | `500` | 单窗口最多存储的消息条数 |
-| `memory_context_count` | integer | `100` | AI 请求时带入的历史消息条数 |
+| `memory_max_count` | integer | `3000` | 单窗口最多存储的消息条数 |
+| `memory_context_count` | integer | `1000` | AI 请求时带入的历史消息条数 |
 | `reply_delay_switch` | boolean | `true` | 是否启用发送延迟（模拟人工操作） |
 | `reply_delay_min` | integer | `1` | 发送延迟最小秒数（1~600） |
 | `reply_delay_max` | integer | `5` | 发送延迟最大秒数（1~600） |
-| `chat_image_recognition_switch` | boolean | `false` | 是否开启私聊图片识别 |
-| `chat_image_recognition_api` | integer | `0` | 私聊图片识别使用的接口索引（须选择支持视觉的模型） |
-| `group_image_recognition_switch` | boolean | `false` | 是否开启群组图片识别 |
-| `group_image_recognition_api` | integer | `0` | 群组图片识别使用的接口索引（须选择支持视觉的模型） |
+| `clean_ai_reply_switch` | boolean | `true` | 是否清理模型回复中的 `<think>...</think>` 思考过程 |
+| `chat_image_recognition_switch` | boolean | `false` | 是否开启私聊图片、语音识别 |
+| `chat_image_recognition_api` | integer | `0` | 私聊图片识别使用的接口索引（须选择支持视觉的模型；语音转文字调用 wx 能力） |
+| `group_image_recognition_switch` | boolean | `false` | 是否开启群组图片、语音识别 |
+| `group_image_recognition_api` | integer | `0` | 群组图片识别使用的接口索引（须选择支持视觉的模型；语音转文字调用 wx 能力） |
 | `api_error_reply` | string | `"在忙，我稍后回复您"` | 调用 AI 接口失败时发送的固定回复内容 |
+| `api_error_reply_once` | boolean | `false` | 接口失败固定回复是否对同一用户只发送一次 |
+| `chat_max_round_switch` | boolean | `false` | 是否开启私聊单用户最大回复轮数限制 |
+| `chat_max_round_default` | integer | `99` | 私聊默认最大 AI 回复次数 |
+| `chat_max_round_reset_days` | integer | `0` | 回复计数重置周期，`0`=不自动重置 |
+| `chat_max_round_reply` | string | `""` | 超出回复次数后的固定提示语；空则静默 |
+| `chat_max_round_reply_once` | boolean | `false` | 超限提示语是否对同一用户只发送一次 |
 | `chat_split_reply_switch` | boolean | `false` | 是否开启私聊拆分多条回复 |
 | `chat_split_max_chars` | integer | `100` | 私聊拆分回复单条最大字数 |
 | `chat_split_max_count` | integer | `4` | 私聊拆分回复最多条数 |
@@ -437,6 +466,13 @@ config/prompt/
 
 **优先级**：`群组/用户专属 Prompt` > `default_prompt（全局默认）` > 空字符串
 
+### 监听与只监听模式说明
+
+- `chat_listen_only=true`：私聊只监听不调用 AI 自动回复。关键词回复、自定义转发、记忆写入仍会正常运行。
+- `group_listen_only=true`：群聊只监听不调用 AI 自动回复。关键词回复、自定义转发、记忆写入仍会正常运行。
+- 管理员指令 `/暂停私聊自动回复`、`/恢复私聊自动回复`、`/暂停群聊自动回复`、`/恢复群聊自动回复` 会直接控制上述两个配置项。
+- 关键词回复和自定义转发的 `all_sources=true` 依赖已在私聊监听、群组管理中注册的监听对象。若只想提供消息来源但不需要 AI 回复，请开启对应的只监听模式。
+
 ### 自定义转发规则（custom_forward_list）字段说明
 
 每条转发规则对象包含以下字段：
@@ -451,6 +487,8 @@ config/prompt/
 | `senders` | array | `type=sender` 时使用，消息发送人匹配时触发 |
 | `targets` | array | 转发目标列表，支持多个联系人昵称或群聊名称，每次转发间隔 1 秒 |
 | `forward_with_source` | boolean | 是否在转发时附带来源信息（"来源窗口：xxx，发送人：xxx"） |
+
+> `all_sources=true` 时，规则来源不是“全微信所有窗口”，而是当前已经通过私聊监听和群组管理注册成功的监听对象。需要先配置监听对象，再使用全部来源模式。
 
 ### 定时任务（scheduled_msg_list）字段说明
 
@@ -686,6 +724,8 @@ memory/
         └── 某某群_memory.json
 ```
 
+如果窗口名含有 Windows 文件/文件夹不支持的符号，程序会自动清理非法部分；如果清理后为空或仍不适合作为文件名，则使用 `hash` 前缀的哈希目录存储。只要实际存储名和原始窗口名不一致，目录下会生成 `name.json` 记录原始窗口名，记忆管理面板会优先读取它用于显示。记忆依托对话名称区分对象，请手动做好 wx 备注，避免重名导致记忆混用。
+
 **记忆 JSON 格式**：
 ```json
 [
@@ -696,7 +736,7 @@ memory/
 
 **群聊记忆特点**：群聊历史消息传给 AI 时格式为 `[时间] 发送人: 内容`，AI 能准确区分不同群成员的发言。
 
-**注意**：开启记忆后每次 AI 请求都会携带最近 N 条历史，会增加 token 消耗。推荐配置：`memory_max_count=500`，`memory_context_count=100`。
+**注意**：开启记忆后每次 AI 请求都会携带最近 N 条历史，会增加 token 消耗。推荐配置：`memory_max_count=3000`，`memory_context_count=1000`。
 
 ### 监听模式详解
 

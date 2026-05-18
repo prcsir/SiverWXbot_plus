@@ -1273,6 +1273,15 @@ body.mobile-nav-open { overflow: hidden; }
         <label for="AllListen_switch">全局监听</label>
         <span class="switch-desc">开启后监听所有消息，下方列表变为黑名单</span>
       </div>
+      <div class="switch-row">
+        <input class="form-check-input" type="checkbox" id="chat_listen_only" name="chat_listen_only" {% if config.get('chat_listen_only', False) %}checked{% endif %}>
+        <label for="chat_listen_only">只监听不 AI 回复</label>
+        <span class="switch-desc">监听、记忆、关键词回复和自定义转发正常运行，但不会调用接口生成私聊 AI 回复</span>
+      </div>
+      <div class="cfg-hint" style="margin-bottom:12px;padding:10px 14px;background:#f0f7ff;border:1px solid #bcd4f5;border-radius:6px;color:#1a5fa8;font-size:12.5px;line-height:1.8;">
+        <i class="bi bi-info-circle" style="color:#2d8cf0;margin-right:4px;"></i>
+        只监听不 AI 回复适合仅存储消息，或为关键词回复、自定义转发提供私聊监听来源。
+      </div>
       <!-- 全局 Prompt 选择（全局监听模式时显示） -->
       <div id="global-prompt-row" style="display:{% if config.AllListen_switch %}flex{% else %}none{% endif %};align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;padding:10px 14px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;">
         <label class="cfg-label" style="margin:0;white-space:nowrap;color:#0c4a6e;">全局 Prompt：</label>
@@ -1400,7 +1409,17 @@ body.mobile-nav-open { overflow: hidden; }
       </div>
       <div class="switch-row">
         <input class="form-check-input" type="checkbox" id="group_switch" name="group_switch" {% if config.group_switch %}checked{% endif %}>
-        <label for="group_switch">启用群聊回复</label>
+        <label for="group_switch">启用群聊监听/回复</label>
+        <span class="switch-desc">关闭后群组列表不会注册监听；开启只监听模式后仅监听不调用 AI 回复</span>
+      </div>
+      <div class="switch-row">
+        <input class="form-check-input" type="checkbox" id="group_listen_only" name="group_listen_only" {% if config.get('group_listen_only', False) %}checked{% endif %}>
+        <label for="group_listen_only">只监听不 AI 回复</label>
+        <span class="switch-desc">监听、记忆、关键词回复和自定义转发正常运行，但不会调用接口生成群聊 AI 回复</span>
+      </div>
+      <div class="cfg-hint" style="margin-bottom:12px;padding:10px 14px;background:#f0f7ff;border:1px solid #bcd4f5;border-radius:6px;color:#1a5fa8;font-size:12.5px;line-height:1.8;">
+        <i class="bi bi-info-circle" style="color:#2d8cf0;margin-right:4px;"></i>
+        只监听不 AI 回复适合仅存储群消息，或为关键词回复、自定义转发提供群聊监听来源。
       </div>
       <div class="switch-row">
         <input class="form-check-input" type="checkbox" id="group_reply_at" name="group_reply_at" {% if config.group_reply_at %}checked{% endif %}>
@@ -1610,6 +1629,10 @@ body.mobile-nav-open { overflow: hidden; }
   <div class="config-panel" id="tab-keyword">
     <div class="cfg-card">
       <div class="cfg-card-header"><i class="bi bi-key"></i><h5>关键词回复</h5><span class="desc">设置关键词自动回复规则</span></div>
+      <div class="cfg-hint" style="margin-bottom:14px;padding:10px 14px;background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;color:#9a3412;font-size:12.5px;line-height:1.8;">
+        <i class="bi bi-exclamation-triangle-fill" style="color:#ea580c;margin-right:4px;"></i>
+        关键词监听来源依托于「私聊监听」和「群组管理」中设置的监听对象，请先在对应页面配置监听对象后再使用。若只需要关键词回复、记忆或转发，不需要 AI 自动回复，请在对应监听页面勾选「只监听不 AI 回复」。
+      </div>
       <div class="switch-row">
         <input class="form-check-input" type="checkbox" id="chat_keyword_switch" name="chat_keyword_switch" {% if config.chat_keyword_switch %}checked{% endif %}>
         <label for="chat_keyword_switch">私聊关键词回复</label>
@@ -1642,7 +1665,7 @@ body.mobile-nav-open { overflow: hidden; }
       <div class="cfg-hint" style="margin-bottom:14px;padding:10px 14px;background:#fffbe6;border:1px solid #ffe58f;border-radius:6px;color:#856404;font-size:12.5px;line-height:1.7;">
         <b>功能说明：</b>监听指定来源窗口，当消息满足触发条件时自动转发给目标。<br>
         <b>关键词转发</b>：消息内容包含任意关键词时触发 ｜ <b>固定发送人转发</b>：消息的发送人匹配时触发 ｜ <b>无差别转发</b>：所有消息均转发<br>
-        <b>注意：</b>转发来源如已在「私聊监听」或「群组管理」中，无需重复填写，机器人启动时会自动跳过重复注册。
+        <b>注意：</b>若规则勾选「全部来源」，来源依托于「私聊监听」和「群组管理」中设置的监听对象，请先在对应页面配置监听对象后再使用。若不需要 AI 自动回复，请在对应监听页面勾选「只监听不 AI 回复」。
       </div>
       <div class="switch-row">
         <input class="form-check-input" type="checkbox" id="custom_forward_switch" name="custom_forward_switch" {% if config.custom_forward_switch %}checked{% endif %}>
@@ -2344,7 +2367,7 @@ body.mobile-nav-open { overflow: hidden; }
         </div>
         <a href="https://dusapi.com" target="_blank" style="flex-shrink:0;background:#07C160;color:#fff;border-radius:6px;padding:6px 14px;font-size:12.5px;font-weight:600;text-decoration:none;white-space:nowrap;transition:opacity .2s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">前往 →</a>
       </div>
-      <div class="cfg-hint" style="margin-bottom:16px;">⚠️ 提示：推荐存储 3000 条，AI 带入 1000 条。数值越大 token 消耗越多，请根据实际需求调整。带入上下文越多，模型学习与理解力越强，但要注意你使用的模型输入限制。</div>
+      <div class="cfg-hint" style="margin-bottom:16px;">提示：推荐存储 3000 条，AI 带入 1000 条。数值越大 token 消耗越多，请根据实际需求调整。记忆存储依托对话名称区分对象，请手动做好微信备注，避免重名导致记忆混用。</div>
       <div class="row g-3">
         <div class="col-12 col-md-6">
           <label class="cfg-label" for="memory_max_count">最大存储条数（50 ~ 5000）</label>
@@ -3697,7 +3720,9 @@ $(function(){
       api_index:api_index,
       AllListen_switch:$('#AllListen_switch').is(':checked'),
       AllListen_filter_mute:$('#AllListen_filter_mute').is(':checked'),
+      chat_listen_only:$('#chat_listen_only').is(':checked'),
       group_switch:$('#group_switch').is(':checked'),
+      group_listen_only:$('#group_listen_only').is(':checked'),
       group_reply_at:$('#group_reply_at').is(':checked'),
       group_reply_at_msg:$('#group_reply_at_msg').is(':checked'),
       group_reply_quote:$('#group_reply_quote').is(':checked'),
@@ -4792,12 +4817,12 @@ $(function(){
   }
 
   // 加载并渲染消息列表
-  function loadMemoryMessages(wxid, chat){
+  function loadMemoryMessages(wxid, chatKey, chatName){
     var $c = $('#memory-msg-container');
-    $('#memory-msg-title').text(chat);
+    $('#memory-msg-title').text(chatName || chatKey);
     $('#memory-msg-count').text('加载中...');
     $c.html('<div style="text-align:center;color:var(--muted);font-size:13px;padding:20px;">加载中...</div>');
-    $.getJSON('/memory/data/'+encodeURIComponent(wxid)+'/'+encodeURIComponent(chat))
+    $.getJSON('/memory/data/'+encodeURIComponent(wxid)+'/'+encodeURIComponent(chatKey))
       .done(function(res){
         $c.empty();
         if(res.status !== 'success' || !res.messages.length){
@@ -4827,27 +4852,29 @@ $(function(){
           $list.html('<div style="padding:12px;font-size:12.5px;color:var(--muted);">暂无对话窗口</div>');
           return;
         }
-        res.chats.forEach(function(chat){
+        res.chats.forEach(function(chatItem){
+          var chatName = (typeof chatItem === 'string') ? chatItem : (chatItem.name || chatItem.storage_name || '');
+          var chatKey  = (typeof chatItem === 'string') ? chatItem : (chatItem.storage_name || chatItem.name || '');
           var $item = $('<div class="memory-list-item">' +
-            '<span class="item-name" title="'+$('<span>').text(chat).html()+'">'+$('<span>').text(chat).html()+'</span>' +
+            '<span class="item-name" title="'+$('<span>').text(chatName).html()+'">'+$('<span>').text(chatName).html()+'</span>' +
             '<button type="button" class="btn-del-mem" title="删除"><i class="bi bi-trash"></i></button>' +
             '</div>');
           // 如果是自动恢复选中的那一项，立即标记 selected
-          if(chat === autoSelect) $item.addClass('selected');
+          if(chatKey === autoSelect) $item.addClass('selected');
           $item.on('click', function(e){
             if($(e.target).closest('.btn-del-mem').length) return;
             $('.memory-list-item','#memory-chat-list').removeClass('selected');
             $item.addClass('selected');
-            _memChatName = chat;
+            _memChatName = chatKey;
             $('#memory-msg-area').show().css('display','flex');
-            loadMemoryMessages(wxid, chat);
+            loadMemoryMessages(wxid, chatKey, chatName);
           });
           $item.find('.btn-del-mem').on('click', function(){
-            svModal.confirm('确定删除窗口「'+chat+'」的记忆？', function(){
-              $.ajax({ url:'/memory/delete_chat/'+encodeURIComponent(wxid)+'/'+encodeURIComponent(chat), type:'DELETE' })
+            svModal.confirm('确定删除窗口「'+chatName+'」的记忆？', function(){
+              $.ajax({ url:'/memory/delete_chat/'+encodeURIComponent(wxid)+'/'+encodeURIComponent(chatKey), type:'DELETE' })
                 .done(function(r){
                   if(r.status==='success'){
-                    if(_memChatName===chat){ _memChatName=null; $('#memory-msg-area').hide(); $('#memory-msg-container').empty(); }
+                    if(_memChatName===chatKey){ _memChatName=null; $('#memory-msg-area').hide(); $('#memory-msg-container').empty(); }
                     loadMemoryChatList(wxid);
                   } else { svModal.error(r.message||'删除失败'); }
                 });
@@ -4856,9 +4883,21 @@ $(function(){
           $list.append($item);
         });
         // 自动恢复：若之前有选中的窗口，立即加载其消息
-        if(autoSelect && res.chats.indexOf(autoSelect) !== -1){
-          $('#memory-msg-area').show().css('display','flex');
-          loadMemoryMessages(wxid, autoSelect);
+        if(autoSelect){
+          var selectedChat = null;
+          res.chats.some(function(chatItem){
+            var chatName = (typeof chatItem === 'string') ? chatItem : (chatItem.name || chatItem.storage_name || '');
+            var chatKey  = (typeof chatItem === 'string') ? chatItem : (chatItem.storage_name || chatItem.name || '');
+            if(chatKey === autoSelect){
+              selectedChat = {key: chatKey, name: chatName};
+              return true;
+            }
+            return false;
+          });
+          if(selectedChat){
+            $('#memory-msg-area').show().css('display','flex');
+            loadMemoryMessages(wxid, selectedChat.key, selectedChat.name);
+          }
         }
       })
       .fail(function(xhr){

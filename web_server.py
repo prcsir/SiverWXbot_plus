@@ -12,6 +12,8 @@ import os
 import shutil
 import base64
 import tempfile
+import hashlib
+import re
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -618,6 +620,8 @@ def dashboard():
     # —— 新增字段默认值（关键）——
     config.setdefault('group_api_map', {})                   # 群组专属接口映射
     config.setdefault('group_welcome_random', 1.0)          # 新人欢迎概率
+    config.setdefault('chat_listen_only', False)             # 私聊只监听不 AI 回复
+    config.setdefault('group_listen_only', False)            # 群聊只监听不 AI 回复
     config.setdefault('chat_keyword_switch', False)          # 私聊关键词开关
     config.setdefault('group_keyword_switch', False)         # 群组关键词开关
     config.setdefault('group_keyword_at_only', False)        # 群聊关键词仅@时回复
@@ -759,7 +763,9 @@ def _coerce_bool_fields(merged_config):
     boolean_fields = [
         'AllListen_switch',
         'AllListen_filter_mute',
+        'chat_listen_only',
         'group_switch',
+        'group_listen_only',
         'group_reply_at',
         'group_reply_at_msg',
         'group_reply_quote',
@@ -1576,6 +1582,58 @@ def pick_image_file():
         return jsonify({'status': 'error', 'message': str(e)})
 
 MEMORY_BASE = os.path.join(base_dir(), 'memory')
+WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+    "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+}
+INVALID_FILENAME_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+def _memory_is_windows_reserved_name(name):
+    stem = name.split('.', 1)[0].upper()
+    return stem in WINDOWS_RESERVED_NAMES
+
+def _memory_hash_storage_name(name):
+    raw_name = str(name)
+    return "hash" + hashlib.sha256(raw_name.encode('utf-8')).hexdigest()
+
+def _memory_resolve_storage_name(chat_name):
+    raw_name = str(chat_name)
+    storage_name = INVALID_FILENAME_CHARS_RE.sub('', raw_name)
+    storage_name = storage_name.strip().rstrip('. ')
+    if (
+        not storage_name
+        or storage_name in ('.', '..')
+        or _memory_is_windows_reserved_name(storage_name)
+        or len(storage_name) > 120
+    ):
+        return _memory_hash_storage_name(raw_name)
+    return storage_name
+
+def _memory_read_original_name(chat_path, fallback):
+    name_path = os.path.join(chat_path, 'name.json')
+    if not os.path.exists(name_path):
+        return fallback
+    try:
+        with open(name_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        name = data.get('name') if isinstance(data, dict) else None
+        return str(name) if name else fallback
+    except Exception:
+        return fallback
+
+def _memory_find_chat_dir(wx_path, chat_name):
+    storage_name = _memory_resolve_storage_name(chat_name)
+    direct_path = os.path.join(wx_path, storage_name)
+    if os.path.isdir(direct_path):
+        return storage_name, direct_path
+    if not os.path.isdir(wx_path):
+        return storage_name, direct_path
+    for item in os.listdir(wx_path):
+        item_path = os.path.join(wx_path, item)
+        if os.path.isdir(item_path) and _memory_read_original_name(item_path, item) == chat_name:
+            return item, item_path
+    return storage_name, direct_path
 
 @app.route('/api/backup_now', methods=['POST'])
 @login_required
@@ -1624,7 +1682,13 @@ def memory_chats(wx_id):
         if not os.path.exists(wx_path):
             return jsonify({'status': 'success', 'chats': []})
         wx_abs = os.path.abspath(wx_path)
-        chats = [d for d in os.listdir(wx_path) if _safe_is_dir(wx_abs, d)]
+        chats = []
+        for d in os.listdir(wx_path):
+            if not _safe_is_dir(wx_abs, d):
+                continue
+            chat_path = os.path.join(wx_path, d)
+            display_name = _memory_read_original_name(chat_path, d)
+            chats.append({'name': display_name, 'storage_name': d})
         return jsonify({'status': 'success', 'chats': chats})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
@@ -1635,10 +1699,11 @@ def memory_data(wx_id, chat_name):
     """返回指定窗口的记忆数据（JSON 列表）"""
     try:
         dir_abs = os.path.abspath(os.path.join(MEMORY_BASE, wx_id))
+        _, chat_dir_normal = _memory_find_chat_dir(dir_abs, chat_name)
         if os.name == 'nt':
-            chat_dir = '\\\\?\\' + dir_abs + '\\' + chat_name
+            chat_dir = '\\\\?\\' + chat_dir_normal
         else:
-            chat_dir = os.path.join(dir_abs, chat_name)
+            chat_dir = chat_dir_normal
         if not os.path.exists(chat_dir):
             return jsonify({'status': 'success', 'messages': []})
         # 扫目录找实际的 *_memory.json 文件（Windows 可能截断目录名导致文件名与目录名不一致）
@@ -1646,7 +1711,7 @@ def memory_data(wx_id, chat_name):
         if not mem_files:
             return jsonify({'status': 'success', 'messages': []})
         if os.name == 'nt':
-            file_path = '\\\\?\\' + dir_abs + '\\' + chat_name + '\\' + mem_files[0]
+            file_path = '\\\\?\\' + chat_dir_normal + '\\' + mem_files[0]
         else:
             file_path = os.path.join(chat_dir, mem_files[0])
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -1677,10 +1742,11 @@ def memory_delete_chat(wx_id, chat_name):
     """删除指定窗口的记忆文件"""
     try:
         parent_abs = os.path.abspath(os.path.join(MEMORY_BASE, wx_id))
+        _, chat_path_normal = _memory_find_chat_dir(parent_abs, chat_name)
         if os.name == 'nt':
-            chat_path = '\\\\?\\' + parent_abs + '\\' + chat_name
+            chat_path = '\\\\?\\' + chat_path_normal
         else:
-            chat_path = os.path.join(parent_abs, chat_name)
+            chat_path = chat_path_normal
         if os.path.exists(chat_path):
             shutil.rmtree(chat_path)
         log('SUCCESS', f'已删除 {wx_id}/{chat_name} 的记忆')
@@ -1837,10 +1903,12 @@ def main():
                 "admin": "文件传输助手",
                 "AllListen_switch": False,
                 "AllListen_filter_mute": True,
+                "chat_listen_only": False,
                 "listen_list": [],
                 "group": [],
                 "group_api_map": {},
                 "group_switch": False,
+                "group_listen_only": False,
                 "group_reply_at": False,
                 "group_reply_at_msg": True,
                 "group_reply_quote": False,
