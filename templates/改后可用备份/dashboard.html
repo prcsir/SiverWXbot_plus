@@ -749,7 +749,7 @@ body.mobile-nav-open { overflow: hidden; }
       <i class="bi bi-x-lg"></i>
     </button>
   </div>
-  <div class="nav-item"><a class="nav-link" data-tab="tab-status"><i class="bi bi-speedometer2"></i> 状态面板</a></div>
+  <div class="nav-item"><a class="nav-link active" data-tab="tab-status"><i class="bi bi-speedometer2"></i> 状态面板</a></div>
   <div class="nav-item"><a class="nav-link" data-tab="tab-siver-panel"><i class="bi bi-router"></i> 远程访问服务</a></div>
   <div class="nav-divider"></div>
   <div class="nav-item"><a class="nav-link" data-tab="tab-api"><i class="bi bi-cloud"></i> 模型配置</a></div>
@@ -761,7 +761,6 @@ body.mobile-nav-open { overflow: hidden; }
   <div class="nav-item"><a class="nav-link" data-tab="tab-friend"><i class="bi bi-person-plus"></i> 好友管理</a></div>
   <div class="nav-divider"></div>
   <div class="nav-item"><a class="nav-link" data-tab="tab-keyword"><i class="bi bi-key"></i> 关键词回复</a></div>
-  <div class="nav-item"><a class="nav-link" data-tab="tab-block"><i class="bi bi-slash-circle"></i> 关键词屏蔽</a></div>
   <div class="nav-item"><a class="nav-link" data-tab="tab-forward"><i class="bi bi-share"></i> 自定义转发</a></div>
   <div class="nav-item"><a class="nav-link" data-tab="tab-schedule"><i class="bi bi-alarm"></i> 定时消息</a></div>
   <div class="nav-item"><a class="nav-link" data-tab="tab-moments"><i class="bi bi-image"></i> 朋友圈</a></div>
@@ -791,7 +790,7 @@ body.mobile-nav-open { overflow: hidden; }
 
   <form id="configForm">
   <!-- ===== Tab: Status ===== -->
-  <div class="config-panel" id="tab-status">
+  <div class="config-panel active" id="tab-status">
 
     <!-- 版本更新卡片（有更新时插到运行状态前面，JS控制） -->
     <div class="cfg-card" id="update-card">
@@ -954,11 +953,6 @@ body.mobile-nav-open { overflow: hidden; }
           <div class="stat-icon"><i class="bi bi-key"></i></div>
           <div class="stat-val" id="sv-keyword">-</div>
           <div class="stat-label">关键词回复</div>
-        </div>
-        <div class="stat-card" id="sc-block">
-          <div class="stat-icon"><i class="bi bi-slash-circle"></i></div>
-          <div class="stat-val" id="sv-block">-</div>
-          <div class="stat-label">关键词屏蔽</div>
         </div>
         <div class="stat-card" id="sc-memory">
           <div class="stat-icon"><i class="bi bi-database"></i></div>
@@ -1661,34 +1655,6 @@ body.mobile-nav-open { overflow: hidden; }
         {% endfor %}
       </div>
       <button type="button" class="btn-add" id="btn-add-keyword"><i class="bi bi-plus-circle"></i> 添加关键词</button>
-    </div>
-  </div>
-
-  <!-- ===== Tab: Block ===== -->
-  <div class="config-panel" id="tab-block">
-    <div class="cfg-card">
-      <div class="cfg-card-header"><i class="bi bi-slash-circle"></i><h5>关键词屏蔽</h5><span class="desc">设置屏蔽关键词，包含这些词的消息将被完全忽略</span></div>
-      <div class="cfg-hint" style="margin-bottom:14px;padding:10px 14px;background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;color:#9a3412;font-size:12.5px;line-height:1.8;">
-        <i class="bi bi-exclamation-triangle-fill" style="color:#ea580c;margin-right:4px;"></i>
-        屏蔽生效后，包含该关键词的消息将不会触发 AI 回复、关键词回复、自定义转发，也不会存入记忆。请谨慎设置，避免误屏蔽重要消息。
-      </div>
-      <div class="switch-row">
-        <input class="form-check-input" type="checkbox" id="chat_block_switch" name="chat_block_switch" {% if config.chat_block_switch %}checked{% endif %}>
-        <label for="chat_block_switch">私聊关键词屏蔽</label>
-      </div>
-      <div class="switch-row">
-        <input class="form-check-input" type="checkbox" id="group_block_switch" name="group_block_switch" {% if config.group_block_switch %}checked{% endif %}>
-        <label for="group_block_switch">群聊关键词屏蔽</label>
-      </div>
-      <div id="block_container">
-        {% for kw in config.block_list %}
-        <div class="keyword-item">
-          <input type="text" class="form-control" name="block_keyword" value="{{ kw }}" placeholder="屏蔽关键词">
-          <button type="button" class="btn-rm btn-remove-item"><i class="bi bi-x-lg"></i></button>
-        </div>
-        {% endfor %}
-      </div>
-      <button type="button" class="btn-add" id="btn-add-block"><i class="bi bi-plus-circle"></i> 添加屏蔽关键词</button>
     </div>
   </div>
 
@@ -2986,24 +2952,11 @@ $(function(){
     $('.sidebar').toggleClass('mobile-open', !!open);
     $('#mobileSidebarOverlay').toggleClass('active', !!open);
   }
-  function getHashTabId(){
-    var hash = location.hash.replace(/^#/, '');
-    if(hash && $('#' + hash).length > 0){
-      return hash;
-    }
-    return 'tab-status';
-  }
-  function setHashTabId(tabId){
-    if(history.replaceState){
-      history.replaceState(null, '', '#' + tabId);
-    }
-  }
   function activateTab(tabId){
     $('.sidebar .nav-link').removeClass('active');
     $('.sidebar .nav-link[data-tab="'+tabId+'"]').addClass('active');
     $('.config-panel').removeClass('active');
     $('#'+tabId).addClass('active');
-    setHashTabId(tabId);
     if(typeof syncStatusPolling === 'function'){
       syncStatusPolling(tabId === 'tab-status');
     }
@@ -3024,10 +2977,6 @@ $(function(){
     if(isMobileLayout()){
       setMobileSidebar(false);
     }
-  });
-  $(window).on('popstate', function(){
-    var tabId = getHashTabId();
-    activateTab(tabId);
   });
   $(window).on('resize', function(){
     if(!isMobileLayout()){
@@ -3272,16 +3221,6 @@ $(function(){
       '<div class="keyword-item">'+
       '<input type="text" class="form-control" name="keyword_key" placeholder="关键词">'+
       '<textarea class="form-control" name="keyword_value" placeholder="回复内容"></textarea>'+
-      '<button type="button" class="btn-rm btn-remove-item"><i class="bi bi-x-lg"></i></button>'+
-      '</div>'
-    );
-  });
-
-  // ===== Add Block Keyword =====
-  $('#btn-add-block').click(function(){
-    $('#block_container').append(
-      '<div class="keyword-item">'+
-      '<input type="text" class="form-control" name="block_keyword" placeholder="屏蔽关键词">'+
       '<button type="button" class="btn-rm btn-remove-item"><i class="bi bi-x-lg"></i></button>'+
       '</div>'
     );
@@ -3801,8 +3740,6 @@ $(function(){
       chat_keyword_switch:$('#chat_keyword_switch').is(':checked'),
       group_keyword_switch:$('#group_keyword_switch').is(':checked'),
       group_keyword_at_only:$('#group_keyword_at_only').is(':checked'),
-      chat_block_switch:$('#chat_block_switch').is(':checked'),
-      group_block_switch:$('#group_block_switch').is(':checked'),
       admin:$('#admin').val(),
       group_welcome_msg:$('#group_welcome_msg').summernote('code'),
       default_prompt:$('#default_prompt_select').val()||'默认',
@@ -3881,12 +3818,6 @@ $(function(){
     $('input[name="new_friend_msg"]').each(function(){ if($(this).val()) configData.new_friend_msg.push($(this).val()); });
     var keys=$('input[name="keyword_key"]'), vals=$('textarea[name="keyword_value"]');
     keys.each(function(i){ var k=$(this).val(); if(k) configData.keyword_dict[k]=vals.eq(i).val(); });
-    var blockKws = [];
-    $('input[name="block_keyword"]').each(function(){
-      var k = $(this).val().trim();
-      if(k) blockKws.push(k);
-    });
-    configData.block_list = blockKws;
     $('.scheduled-msg-item').each(function(){
       var $t=$(this), msgs=[];
       $t.find('input[name="scheduled_msg"]').each(function(){ if($(this).val()) msgs.push($(this).val()); });
@@ -4362,16 +4293,6 @@ $(function(){
         } else {
           $('#sv-keyword').text('未启用');
         }
-        // 屏蔽关键词卡片
-        var blkOn = d.chat_block_switch || d.group_block_switch;
-        if(blkOn){
-          var blkParts = [];
-          if(d.chat_block_switch) blkParts.push('私聊');
-          if(d.group_block_switch) blkParts.push('群聊');
-          $('#sv-block').text(blkParts.join('/') + ' · ' + (d.block_count||0) + '个');
-        } else {
-          $('#sv-block').text('未启用');
-        }
         // 记忆卡片
         $('#sv-memory').text(d.memory_switch ? ('上下文' + (d.memory_context_count||'-') + '条') : '未启用');
         // 回复延迟卡片
@@ -4590,8 +4511,8 @@ $(function(){
     syncLogPolling(immediate);
   });
 
-  var initialTab = getHashTabId();
-  activateTab(initialTab);
+  syncStatusPolling(true);
+  syncSiverPanelPolling(true);
   syncLogPolling(true);
   checkUpdate(false); // 页面加载时自动检查一次
   setInterval(function(){ checkUpdate(false); }, 6 * 60 * 60 * 1000); // 每 6 小时自动检查一次

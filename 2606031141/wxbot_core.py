@@ -2001,7 +2001,6 @@ class WXBot:
         self.ver      = version
         self.ver_log  = version_log
         self.run_flag = True                    # 主循环运行标志
-        self.is_initializing = False            # 初始化状态标志
         self.config   = WXBotConfig()           # 加载配置
 
         # 根据配置中的 api_sdk 字段选择对应的 AI 接口
@@ -4604,7 +4603,6 @@ class WXBot:
 
         return {
             "running":            self.run_flag,
-            "init_in_progress":   self.is_initializing,
             "version":            self.ver,
             "start_time":         self.start_time.strftime("%Y-%m-%d %H:%M:%S"),
             "uptime":             uptime_str,
@@ -4679,7 +4677,6 @@ class WXBot:
             return False
 
         # 初始化微信监听器
-        self.is_initializing = True
         try:
             self.init_wx_listeners()
             log(message=f"UI面板状态更新完成")
@@ -4701,8 +4698,6 @@ class WXBot:
             log(level="ERROR", message=str(e) + "\n 若重启wx还是不行，就请重启整个面板程序，面板和wx都重启了还不行就请进入面板右上角文档检查环境要求，wx版本是否匹配,4.1.7 ~ 4.1.9.35")
             log(level="ERROR", message=str(e) + "\n 若重启wx还是不行，就请重启整个面板程序，面板和wx都重启了还不行就请进入面板右上角文档检查环境要求，wx版本是否匹配,4.1.7 ~ 4.1.9.35")
             self.run_flag = False
-        finally:
-            self.is_initializing = False
 
         # 主循环
         while self.run_flag:

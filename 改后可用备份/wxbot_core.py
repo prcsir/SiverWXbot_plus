@@ -3,7 +3,7 @@
 # 作者：https://www.siver.top
 
 version = "V4.7.26"
-version_log = "V4.7.26 - 优化监听和全局窗口管理、优化记忆存储文件命名、监听新增只监听不AI回复模式(便于存储消息、只关键词回复或者自定义转发等不需要ai回复的场景) | 本地增强: 新增关键词屏蔽功能、Web服务开放局域网访问(0.0.0.0)"
+version_log = "V4.7.26 - 优化监听和全局窗口管理、优化记忆存储文件命名、监听新增只监听不AI回复模式(便于存储消息、只关键词回复或者自定义转发等不需要ai回复的场景)"
 
 # ============================================================
 # 标准库导入
@@ -200,11 +200,6 @@ class WXBotConfig:
         self.group_keyword_switch = False   # 群聊关键词回复开关
         self.group_keyword_at_only = False  # 群聊关键词仅被@时触发
         self.keyword_dict = {}              # 关键词 -> 回复内容 字典
-
-        # ---------- 关键词屏蔽配置 ----------
-        self.chat_block_switch = False    # 私聊关键词屏蔽开关
-        self.group_block_switch = False   # 群聊关键词屏蔽开关
-        self.block_list = []              # 屏蔽关键词列表
 
         # ---------- 自定义转发配置 ----------
         self.custom_forward_switch = False  # 自定义转发总开关
@@ -525,11 +520,6 @@ class WXBotConfig:
         self.group_keyword_switch  = self.config.get('group_keyword_switch')
         self.group_keyword_at_only = self.config.get('group_keyword_at_only', False)
         self.keyword_dict          = self.config.get('keyword_dict', {})
-
-        # 关键词屏蔽配置
-        self.chat_block_switch  = self.config.get('chat_block_switch', False)
-        self.group_block_switch = self.config.get('group_block_switch', False)
-        self.block_list         = self.config.get('block_list', [])
 
         # 定时消息配置
         self.scheduled_msg_switch = self.config.get('scheduled_msg_switch',
@@ -2001,7 +1991,6 @@ class WXBot:
         self.ver      = version
         self.ver_log  = version_log
         self.run_flag = True                    # 主循环运行标志
-        self.is_initializing = False            # 初始化状态标志
         self.config   = WXBotConfig()           # 加载配置
 
         # 根据配置中的 api_sdk 字段选择对应的 AI 接口
@@ -2017,6 +2006,10 @@ class WXBot:
         self.start_time          = datetime.now()
         self.callback_is_die     = False        # 回调函数是否发生致命错误的标志
         self.msgs_path           = './wx_msgs/' # 消息本地存储路径（当前未启用）
+
+        # COM 跨线程安全：Flask 线程访问的缓存值（避免在非 COM 线程触碰 self.wx）
+        self.is_initializing     = False        # True 表示正在 init_wx_listeners()
+        self._cached_wx_nickname = None         # self.wx.nickname 的缓存副本
 
         # 运行统计数据（供状态面板采集）
         self.msg_received_count  = 0            # 已接收消息数
@@ -2197,14 +2190,46 @@ class WXBot:
             return chat
         return None
 
+    def _call_with_timeout(self, fn, timeout=30):
+        """在守护线程中执行 fn()，超时后放弃等待，主线程继续。返回 True=完成, False=超时。"""
+        finished = [False]
+
+        def worker():
+            try:
+                fn()
+            except Exception:
+                pass
+            finally:
+                finished[0] = True
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        thread.join(timeout)
+
+        if not finished[0]:
+            log(level="WARNING", message=f"操作执行超时({timeout}s)，强制继续")
+            return False
+        return True
+
     def _add_listen_chat_once(self, nickname, label):
-        """执行一次 AddListenChat，并记录基础结果。"""
-        result = self.wx.AddListenChat(nickname=nickname, callback=self.message_handle_callback)
-        if result:
+        """执行一次 AddListenChat，并记录基础结果（带 60 秒超时保护）。"""
+        try:
+            _result_holder = {}
+            def do_add_and_capture():
+                _result_holder['val'] = self.wx.AddListenChat(nickname=nickname, callback=self.message_handle_callback)
+            ok = self._call_with_timeout(do_add_and_capture, timeout=60)
+            if not ok:
+                log(level="ERROR", message=f"添加{label} {nickname} 监听超时")
+                return False
+            result_val = _result_holder.get('val')
+        except Exception as e:
+            log(level="ERROR", message=f"添加{label} {nickname} 监听异常: {e}")
+            return False
+        if result_val:
             log(message=f"添加{label} {nickname} 监听完成")
         else:
-            log(level="ERROR", message=f"添加{label} {nickname} 监听失败, {self._listen_add_error(result)}")
-        return result
+            log(level="ERROR", message=f"添加{label} {nickname} 监听失败, {self._listen_add_error(result_val)}")
+        return result_val
 
     def _verify_initial_listeners(self, expected_chats, retry_count=3):
         """
@@ -2229,11 +2254,8 @@ class WXBot:
         log(level="WARNING", message=f"初始化监听子窗口缺失，准备重试: {missing}")
         for attempt in range(1, retry_count + 1):
             for nickname in missing:
-                try:
-                    self._add_listen_chat_once(nickname, "初始化重试")
-                except Exception as e:
-                    log(level="ERROR", message=f"重试添加 {nickname} 监听异常: {e}")
-                    time.sleep(11)  # 遇错等窗口冷却
+                time.sleep(0.5)
+                self._add_listen_chat_once(nickname, "初始化重试")
             listened_names = self._get_all_subwindow_names()
             missing = [nickname for nickname in missing if nickname not in listened_names]
             if not missing:
@@ -2303,151 +2325,154 @@ class WXBot:
         - 注册每日定时消息任务
         """
         result = None
-        # 若尚未实例化微信客户端则进行初始化
-        if not self.wx:
-            log(message="本次未获取客户端，正在初始化微信客户端...")
-            try:
-                self.wx = WeChat(version='微信')
-            except Exception:
+        self.is_initializing = True
+        try:
+            # 若尚未实例化微信客户端则进行初始化
+            if not self.wx:
+                log(message="本次未获取客户端，正在初始化微信客户端...")
                 try:
-                    log(level='WARNING', message="初始化出错，尝试国际版")
-                    self.wx = WeChat(version='WeChat')
+                    self.wx = WeChat(version='微信')
                 except Exception:
-                    raise   # 第二次也失败，抛出异常，由外层 try 接住
-            # self.wx.Show()  # 首次强制弹出主窗口以获取焦点
+                    try:
+                        log(level='WARNING', message="初始化出错，尝试国际版")
+                        self.wx = WeChat(version='WeChat')
+                    except Exception:
+                        raise   # 第二次也失败，抛出异常，由外层 try 接住
+                # self.wx.Show()  # 首次强制弹出主窗口以获取焦点
 
-        # 绑定 @ 标识（格式："@机器人昵称"）
-        self.config.AtMe = "@" + self.wx.nickname
-        log(message='绑定@：' + self.config.AtMe)
+            # 初始化后立即缓存昵称，之后所有读取走缓存（Flask 线程用缓存，不碰 COM）
+            self._cached_wx_nickname = self.wx.nickname
 
-        # 初始化记忆管理器
-        try:
-            my_info = self.wx.GetMyInfo()
-            wx_id   = my_info.get('id', f'{self.wx.nickname}')
-        except Exception:
-            wx_id = f'{self.wx.nickname}'
-        _base       = os.path.dirname(sys.executable) if hasattr(sys, '_MEIPASS') else os.path.abspath(".")
-        memory_base = os.path.join(_base, 'memory')
-        self.memory_manager = MemoryManager(wx_id, memory_base)
-        log(message=f"记忆管理器已初始化，微信号: {wx_id}")
+            # 绑定 @ 标识（格式："@机器人昵称"）
+            self.config.AtMe = "@" + self._cached_wx_nickname
+            log(message='绑定@：' + self.config.AtMe)
 
-        # 启动 wxautox 消息监听器
-        log(message='启动wxautox监听器...')
-        self.wx.StopListening()
-        time.sleep(1)
-        self.wx.StartListening()
+            # 初始化记忆管理器
+            try:
+                my_info = self.wx.GetMyInfo()
+                wx_id   = my_info.get('id', f'{self._cached_wx_nickname}')
+            except Exception:
+                wx_id = f'{self._cached_wx_nickname}'
+            _base       = os.path.dirname(sys.executable) if hasattr(sys, '_MEIPASS') else os.path.abspath(".")
+            memory_base = os.path.join(_base, 'memory')
+            self.memory_manager = MemoryManager(wx_id, memory_base)
+            log(message=f"记忆管理器已初始化，微信号: {wx_id}")
 
-        expected_listeners = []
+            # 启动 wxautox 消息监听器（带 30 秒超时保护，防止底层 COM 阻塞永久卡死）
+            log(message='启动wxautox监听器...')
+            self.wx.StopListening()
+            time.sleep(1)
+            self._call_with_timeout(self.wx.StartListening, timeout=30)
 
-        # 添加管理员账号监听（管理员始终监听，不受白名单模式限制）
-        time.sleep(0.5)
-        self._add_listen_chat_once(self.config.cmd, "管理员")
-        expected_listeners.append(self.config.cmd)
+            expected_listeners = []
 
-        # 白名单模式下逐一添加用户监听
-        if not self.config.AllListen_switch:
-            log(message="白名单模式开启")
-            for user in self.config.listen_list:
-                time.sleep(0.5)
-                self._add_listen_chat_once(user, "用户")
-                expected_listeners.append(user)
+            # 添加管理员账号监听（管理员始终监听，不受白名单模式限制）
+            time.sleep(0.5)
+            try:
+                self._add_listen_chat_once(self.config.cmd, "管理员")
+            except Exception as e:
+                log(level="ERROR", message=f"添加管理员 {self.config.cmd} 监听时发生异常: {e}")
+            expected_listeners.append(self.config.cmd)
 
-        # 若群机器人开关开启，则添加群聊监听
-        if self.config.group_switch:
-            for user in self.config.group:
-                time.sleep(0.5)
-                try:
-                    self._add_listen_chat_once(user, "群组")
-                except Exception as e:
-                    log(level="ERROR", message=f"添加群组 {user} 监听时发生异常: {e}")
-                    # 延时等待窗口冷却，避免连续操作导致 MoveWindow 1400
-                    time.sleep(11)
-                expected_listeners.append(user)
-
-        # 注册自定义转发监听（跳过已在私聊/群组列表中的来源，避免重复注册）
-        if self.config.custom_forward_switch:
-            # group_switch=OFF 时群组未注册监听器，不能算作"已监听"，否则转发来源中的同名群会被漏掉
-            _listened_groups = set(self.config.group) if self.config.group_switch else set()
-            _already_listened = set(self.config.listen_list) | _listened_groups | {self.config.cmd}
-            _fwd_sources = set()
-            for _rule in self.config.custom_forward_list:
-                if _rule.get('all_sources', False):
-                    continue  # 全部来源：依赖已有的私聊/群组监听，无需额外注册
-                for _src in _rule.get('sources', []):
-                    if _src:
-                        _fwd_sources.add(_src)
-            for _source in _fwd_sources:
-                if _source and _source not in _already_listened:
+            # 白名单模式下逐一添加用户监听
+            if not self.config.AllListen_switch:
+                log(message="白名单模式开启")
+                for user in self.config.listen_list:
                     time.sleep(0.5)
-                    self._add_listen_chat_once(_source, "自定义转发监听源")
-                    expected_listeners.append(_source)
+                    try:
+                        self._add_listen_chat_once(user, "用户")
+                    except Exception as e:
+                        log(level="ERROR", message=f"添加用户 {user} 监听时发生异常: {e}")
+                    expected_listeners.append(user)
 
-        try:
+            # 若群机器人开关开启，则添加群聊监听
+            if self.config.group_switch:
+                for user in self.config.group:
+                    time.sleep(0.5)
+                    try:
+                        self._add_listen_chat_once(user, "群组")
+                    except Exception as e:
+                        log(level="ERROR", message=f"添加群组 {user} 监听时发生异常: {e}")
+                    expected_listeners.append(user)
+
+            # 注册自定义转发监听（跳过已在私聊/群组列表中的来源，避免重复注册）
+            if self.config.custom_forward_switch:
+                # group_switch=OFF 时群组未注册监听器，不能算作"已监听"，否则转发来源中的同名群会被漏掉
+                _listened_groups = set(self.config.group) if self.config.group_switch else set()
+                _already_listened = set(self.config.listen_list) | _listened_groups | {self.config.cmd}
+                _fwd_sources = set()
+                for _rule in self.config.custom_forward_list:
+                    if _rule.get('all_sources', False):
+                        continue  # 全部来源：依赖已有的私聊/群组监听，无需额外注册
+                    for _src in _rule.get('sources', []):
+                        if _src:
+                            _fwd_sources.add(_src)
+                for _source in _fwd_sources:
+                    if _source and _source not in _already_listened:
+                        time.sleep(0.5)
+                        try:
+                            self._add_listen_chat_once(_source, "自定义转发监听源")
+                        except Exception as e:
+                            log(level="ERROR", message=f"添加自定义转发来源 {_source} 监听时发生异常: {e}")
+                        expected_listeners.append(_source)
+
             self._verify_initial_listeners(expected_listeners)
-        except Exception as e:
-            log(level="ERROR", message=f"监听子窗口校验异常: {e}")
 
-        # 监听器即时监崩检测：若初始化期间线程崩溃则立即恢复
-        # 无需重新注册 AddListenChat——注册数据保存在 self.wx 实例中，
-        # 与线程生命周期无关，主线程调用的 AddListenChat 在异步线程
-        # 崩溃前已完整执行完毕。历史记录：V4.7.28 曾包含重新注册逻辑
-        # 但实测全部返回"该聊天已监听"，确认为冗余操作后移除。
-        if not any('_listener_listen' in t.name for t in threading.enumerate()):
-            log(level="WARNING", message="监听器线程在初始化期间崩溃，正在恢复...")
-            self.wx.StartListening()
+            # 注册定时消息任务（新版：支持多种重复类型）
+            if self.config.scheduled_msg_switch:
+                log(message="定时消息注册...")
+                try:
+                    schedule.clear('scheduled_msg')  # 清除旧的定时任务（按 tag 清理）
+                    for task in self.config.scheduled_msg_list:
+                        if not task.get('enabled', True):
+                            continue
+                        time_str    = task.get('time', '08:00')
+                        msgs        = task.get('msgs', [])
+                        targets     = task.get('targets', [])
+                        repeat_type = task.get('repeat_type', 'daily')
+                        task_id     = task.get('id', '')
+                        weekdays    = task.get('weekdays', [])
+                        dates       = task.get('dates', [])
 
-        # 注册定时消息任务（新版：支持多种重复类型）
-        if self.config.scheduled_msg_switch:
-            log(message="定时消息注册...")
-            try:
-                schedule.clear('scheduled_msg')  # 清除旧的定时任务（按 tag 清理）
-                for task in self.config.scheduled_msg_list:
-                    if not task.get('enabled', True):
-                        continue
-                    time_str    = task.get('time', '08:00')
-                    msgs        = task.get('msgs', [])
-                    targets     = task.get('targets', [])
-                    repeat_type = task.get('repeat_type', 'daily')
-                    task_id     = task.get('id', '')
-                    weekdays    = task.get('weekdays', [])
-                    dates       = task.get('dates', [])
+                        schedule.every().day.at(time_str).do(
+                            self.send_scheduled_msg, targets, msgs, repeat_type, weekdays, dates, task_id
+                        ).tag('scheduled_msg')
+                        log(message=f"注册定时消息：{repeat_type} {time_str} 给 {targets} 发消息")
+                    log(message="定时消息注册完成")
+                except Exception as e:
+                    log(level="ERROR", message=f"定时消息注册失败：{e}")
 
-                    schedule.every().day.at(time_str).do(
-                        self.send_scheduled_msg, targets, msgs, repeat_type, weekdays, dates, task_id
-                    ).tag('scheduled_msg')
-                    log(message=f"注册定时消息：{repeat_type} {time_str} 给 {targets} 发消息")
-                log(message="定时消息注册完成")
-            except Exception as e:
-                log(level="ERROR", message=f"定时消息注册失败：{e}")
+            # 注册定时朋友圈任务
+            if self.config.scheduled_moments_switch:
+                log(message="定时朋友圈注册...")
+                try:
+                    schedule.clear('scheduled_moments')
+                    for task in self.config.scheduled_moments_list:
+                        if not task.get('enabled', True):
+                            continue
+                        time_str    = task.get('time', '08:00')
+                        text        = task.get('text', '')
+                        images      = task.get('images', [])
+                        privacy     = task.get('privacy', 'public')
+                        tags        = task.get('tags', [])
+                        repeat_type = task.get('repeat_type', 'daily')
+                        task_id     = task.get('id', '')
+                        weekdays    = task.get('weekdays', [])
+                        dates       = task.get('dates', [])
 
-        # 注册定时朋友圈任务
-        if self.config.scheduled_moments_switch:
-            log(message="定时朋友圈注册...")
-            try:
-                schedule.clear('scheduled_moments')
-                for task in self.config.scheduled_moments_list:
-                    if not task.get('enabled', True):
-                        continue
-                    time_str    = task.get('time', '08:00')
-                    text        = task.get('text', '')
-                    images      = task.get('images', [])
-                    privacy     = task.get('privacy', 'public')
-                    tags        = task.get('tags', [])
-                    repeat_type = task.get('repeat_type', 'daily')
-                    task_id     = task.get('id', '')
-                    weekdays    = task.get('weekdays', [])
-                    dates       = task.get('dates', [])
+                        schedule.every().day.at(time_str).do(
+                            self.send_scheduled_moments,
+                            text, images, privacy, tags, repeat_type, weekdays, dates, task_id
+                        ).tag('scheduled_moments')
+                        log(message=f"注册定时朋友圈：{repeat_type} {time_str}")
+                    log(message="定时朋友圈注册完成")
+                except Exception as e:
+                    log(level="ERROR", message=f"定时朋友圈注册失败：{e}")
 
-                    schedule.every().day.at(time_str).do(
-                        self.send_scheduled_moments,
-                        text, images, privacy, tags, repeat_type, weekdays, dates, task_id
-                    ).tag('scheduled_moments')
-                    log(message=f"注册定时朋友圈：{repeat_type} {time_str}")
-                log(message="定时朋友圈注册完成")
-            except Exception as e:
-                log(level="ERROR", message=f"定时朋友圈注册失败：{e}")
-
-        log(message="监听器初始化完成")
+            log(message="监听器初始化完成")
+        finally:
+            self.is_initializing = False
+            log(message="[初始化] 监听器初始化流程结束，放行所有监控")
 
     # ----------------------------------------------------------
     # 定时消息发送
@@ -2891,10 +2916,6 @@ class WXBot:
         :param chat: 聊天窗口子对象（含 who 等属性）
         """
         try:
-            # 关键词屏蔽检查（优先于所有处理：AI回复、关键词回复、转发、记忆）
-            if msg.content and self._is_blocked_keyword(msg.content, chat.who):
-                return True
-
             # 记录原始消息日志
             message_time = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
             text = (
@@ -3254,31 +3275,6 @@ class WXBot:
             if self.config.chat_max_round_reply_once:
                 self.reply_count_store.mark_limit_notified(user_key)
         return True, result
-
-    def _is_blocked_keyword(self, msg_content, chat_who):
-        """
-        检查消息内容是否包含屏蔽关键词。
-        根据 chat_who 判断群聊/私聊，分别检查对应屏蔽开关。
-        返回 True 表示应屏蔽（跳过所有处理）。
-        """
-        if not msg_content:
-            return False
-
-        is_group = chat_who in self.config.group
-
-        if is_group:
-            if not self.config.group_block_switch:
-                return False
-        else:
-            if not self.config.chat_block_switch:
-                return False
-
-        if isinstance(self.config.block_list, (list, set)):
-            for keyword in self.config.block_list:
-                if keyword and keyword in msg_content:
-                    log(message=f"消息命中屏蔽关键词「{keyword}」，已忽略")
-                    return True
-        return False
 
     def _is_custom_forward_source(self, chat_who):
         """判断某个会话是否是任意自定义转发规则的监听来源"""
@@ -4527,10 +4523,6 @@ class WXBot:
                             msg.content = str(Next_callback_down_map[msg.id])
                     # 仅处理 friend 类型的私聊消息，排除群聊
                     if msg.attr == 'friend' and chat_type != 'group':
-                        # 关键词屏蔽检查（优先于记忆、转发、AI处理）
-                        if msg.content and self._is_blocked_keyword(msg.content, chat):
-                            continue
-
                         # 全局模式首次消息：写入记忆（此处不经过 message_handle_callback）
                         if self.config.memory_switch and self.memory_manager:
                             try:
@@ -4589,14 +4581,15 @@ class WXBot:
         uptime_secs = int((datetime.now() - self.start_time).total_seconds())
         hours, rem  = divmod(uptime_secs, 3600)
         minutes, seconds = divmod(rem, 60)
-        uptime_str  = f"{hours}h {minutes}m {seconds}s"
 
-        wx_nickname = None
-        if self.wx:
-            try:
-                wx_nickname = self.wx.nickname
-            except Exception:
-                pass
+        # 使用缓存昵称，绝不触碰 self.wx.nickname（跨线程 COM 危险）
+        wx_nickname = self._cached_wx_nickname if getattr(self, '_cached_wx_nickname', None) else "获取中..."
+
+        # 初始化期间的 uptime 显示提示（仅改变显示文本，不截断字典）
+        if getattr(self, 'is_initializing', False):
+            uptime_str = "系统初始化中..."
+        else:
+            uptime_str = f"{hours}h {minutes}m {seconds}s"
 
         scheduled_enabled = sum(
             1 for t in self.config.scheduled_msg_list if t.get('enabled', True)
@@ -4604,7 +4597,6 @@ class WXBot:
 
         return {
             "running":            self.run_flag,
-            "init_in_progress":   self.is_initializing,
             "version":            self.ver,
             "start_time":         self.start_time.strftime("%Y-%m-%d %H:%M:%S"),
             "uptime":             uptime_str,
@@ -4624,15 +4616,13 @@ class WXBot:
             "last_msg_time":      self.last_msg_time,
             "last_msg_sender":    self.last_msg_sender,
             "callback_is_die":    self.callback_is_die,
+            "init_in_progress":   self.is_initializing,
             "scheduled_switch":   self.config.scheduled_msg_switch,
             "scheduled_count":    scheduled_enabled,
             "chat_keyword_switch":   self.config.chat_keyword_switch,
             "group_keyword_switch":  self.config.group_keyword_switch,
             "group_keyword_at_only": self.config.group_keyword_at_only,
             "keyword_count":         len(self.config.keyword_dict),
-            "chat_block_switch":   self.config.chat_block_switch,
-            "group_block_switch":  self.config.group_block_switch,
-            "block_count":         len(self.config.block_list),
             "memory_switch":         self.config.memory_switch,
             "memory_context_count":  self.config.memory_context_count,
             "reply_delay_switch":    self.config.reply_delay_switch,
@@ -4679,7 +4669,6 @@ class WXBot:
             return False
 
         # 初始化微信监听器
-        self.is_initializing = True
         try:
             self.init_wx_listeners()
             log(message=f"UI面板状态更新完成")
@@ -4701,8 +4690,6 @@ class WXBot:
             log(level="ERROR", message=str(e) + "\n 若重启wx还是不行，就请重启整个面板程序，面板和wx都重启了还不行就请进入面板右上角文档检查环境要求，wx版本是否匹配,4.1.7 ~ 4.1.9.35")
             log(level="ERROR", message=str(e) + "\n 若重启wx还是不行，就请重启整个面板程序，面板和wx都重启了还不行就请进入面板右上角文档检查环境要求，wx版本是否匹配,4.1.7 ~ 4.1.9.35")
             self.run_flag = False
-        finally:
-            self.is_initializing = False
 
         # 主循环
         while self.run_flag:
@@ -4710,6 +4697,12 @@ class WXBot:
                 # ---- 离线检测模块（每 check_interval 次循环执行一次）----
                 check_counter += 1
                 if check_counter >= check_interval:
+                    # 刷新 COM 缓存值（在 bot 线程中安全）
+                    if self.wx:
+                        try:
+                            self._cached_wx_nickname = self.wx.nickname
+                        except Exception:
+                            pass
                     try:
                         if self.callback_is_die:
                             # 回调函数已出错，停止所有监听并退出主循环

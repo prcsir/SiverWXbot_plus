@@ -749,7 +749,7 @@ body.mobile-nav-open { overflow: hidden; }
       <i class="bi bi-x-lg"></i>
     </button>
   </div>
-  <div class="nav-item"><a class="nav-link" data-tab="tab-status"><i class="bi bi-speedometer2"></i> 状态面板</a></div>
+  <div class="nav-item"><a class="nav-link active" data-tab="tab-status"><i class="bi bi-speedometer2"></i> 状态面板</a></div>
   <div class="nav-item"><a class="nav-link" data-tab="tab-siver-panel"><i class="bi bi-router"></i> 远程访问服务</a></div>
   <div class="nav-divider"></div>
   <div class="nav-item"><a class="nav-link" data-tab="tab-api"><i class="bi bi-cloud"></i> 模型配置</a></div>
@@ -791,7 +791,7 @@ body.mobile-nav-open { overflow: hidden; }
 
   <form id="configForm">
   <!-- ===== Tab: Status ===== -->
-  <div class="config-panel" id="tab-status">
+  <div class="config-panel active" id="tab-status">
 
     <!-- 版本更新卡片（有更新时插到运行状态前面，JS控制） -->
     <div class="cfg-card" id="update-card">
@@ -2986,24 +2986,11 @@ $(function(){
     $('.sidebar').toggleClass('mobile-open', !!open);
     $('#mobileSidebarOverlay').toggleClass('active', !!open);
   }
-  function getHashTabId(){
-    var hash = location.hash.replace(/^#/, '');
-    if(hash && $('#' + hash).length > 0){
-      return hash;
-    }
-    return 'tab-status';
-  }
-  function setHashTabId(tabId){
-    if(history.replaceState){
-      history.replaceState(null, '', '#' + tabId);
-    }
-  }
   function activateTab(tabId){
     $('.sidebar .nav-link').removeClass('active');
     $('.sidebar .nav-link[data-tab="'+tabId+'"]').addClass('active');
     $('.config-panel').removeClass('active');
     $('#'+tabId).addClass('active');
-    setHashTabId(tabId);
     if(typeof syncStatusPolling === 'function'){
       syncStatusPolling(tabId === 'tab-status');
     }
@@ -3024,10 +3011,6 @@ $(function(){
     if(isMobileLayout()){
       setMobileSidebar(false);
     }
-  });
-  $(window).on('popstate', function(){
-    var tabId = getHashTabId();
-    activateTab(tabId);
   });
   $(window).on('resize', function(){
     if(!isMobileLayout()){
@@ -4590,8 +4573,8 @@ $(function(){
     syncLogPolling(immediate);
   });
 
-  var initialTab = getHashTabId();
-  activateTab(initialTab);
+  syncStatusPolling(true);
+  syncSiverPanelPolling(true);
   syncLogPolling(true);
   checkUpdate(false); // 页面加载时自动检查一次
   setInterval(function(){ checkUpdate(false); }, 6 * 60 * 60 * 1000); // 每 6 小时自动检查一次

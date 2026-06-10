@@ -626,9 +626,6 @@ def dashboard():
     config.setdefault('group_keyword_switch', False)         # 群组关键词开关
     config.setdefault('group_keyword_at_only', False)        # 群聊关键词仅@时回复
     config.setdefault('keyword_dict', {})                    # 关键词字典
-    config.setdefault('chat_block_switch', False)            # 私聊关键词屏蔽开关
-    config.setdefault('group_block_switch', False)           # 群聊关键词屏蔽开关
-    config.setdefault('block_list', [])                      # 屏蔽关键词列表
     config.setdefault('scheduled_msg_switch', config.get('everyday_msg_switch', False))  # 定时消息开关
     config.setdefault('scheduled_msg_list', [])              # 定时消息任务列表
     config.setdefault('scheduled_moments_switch', False)     # 定时朋友圈开关
@@ -800,8 +797,6 @@ def _coerce_bool_fields(merged_config):
         'api_error_reply_once',             # API错误只回复一次
         'chat_max_round_switch',            # 单用户最大回复轮数限制开关
         'chat_max_round_reply_once',        # 超限后只回复一次
-        'chat_block_switch',                # 私聊关键词屏蔽开关
-        'group_block_switch',               # 群聊关键词屏蔽开关
     ]
     for field in boolean_fields:
         if field in merged_config:
@@ -812,7 +807,7 @@ def _coerce_bool_fields(merged_config):
                 merged_config[field] = bool(v)
 
 def _coerce_list_fields(merged_config):
-    list_fields = ['listen_list', 'group', 'new_friend_msg', 'new_friend_tags', 'scheduled_msg_list', 'random_msg_list', 'scheduled_moments_list', 'random_moments_list', 'custom_forward_list', 'block_list']
+    list_fields = ['listen_list', 'group', 'new_friend_msg', 'new_friend_tags', 'scheduled_msg_list', 'random_msg_list', 'scheduled_moments_list', 'random_moments_list', 'custom_forward_list']
     for field in list_fields:
         if field in merged_config and not isinstance(merged_config[field], list):
             if isinstance(merged_config[field], str):
@@ -977,17 +972,6 @@ def save_config(config_data):
         _coerce_float_fields(merged_config)
         _coerce_int_range_fields(merged_config)
         _coerce_dict_fields(merged_config)
-
-        # block_list 去重 + 去空白
-        if 'block_list' in merged_config and isinstance(merged_config['block_list'], list):
-            seen = set()
-            cleaned = []
-            for kw in merged_config['block_list']:
-                kw = str(kw).strip()
-                if kw and kw not in seen:
-                    cleaned.append(kw)
-                    seen.add(kw)
-            merged_config['block_list'] = cleaned
 
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(merged_config, f, ensure_ascii=False, indent=4)
@@ -1890,7 +1874,7 @@ def find_free_port(start_port=10001, max_port=11000):
     for port in range(start_port, max_port):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
-                s.bind(("0.0.0.0", port))
+                s.bind(("127.0.0.1", port))
                 return port
             except OSError:
                 continue
@@ -1946,9 +1930,6 @@ def main():
                 "group_keyword_switch": False,
                 "group_keyword_at_only": False,
                 "keyword_dict": {},
-                "chat_block_switch": False,
-                "group_block_switch": False,
-                "block_list": [],
                 "scheduled_msg_switch": False,
                 "scheduled_msg_list": [],
                 "random_msg_switch": False,
@@ -2025,14 +2006,14 @@ def main():
         panel_server_port = free_port
         log('INFO', f'请访问 http://localhost:{free_port} 或者 http://127.0.0.1:{free_port} 进行登录')
         # 启动后自动打开浏览器
-        # webbrowser.open(f"http://127.0.0.1:{free_port}")
+        webbrowser.open(f"http://127.0.0.1:{free_port}")
         # 定时启停
         time_start_stop()
         if siver_panel_manager is not None:
             siver_panel_manager.set_local_port_provider(get_panel_server_port)
             siver_panel_manager.start()
         # 启动服务器
-        app.run(host='0.0.0.0', port=free_port, debug=False, threaded=True)
+        app.run(host='127.0.0.1', port=free_port, debug=False, threaded=True)
     except Exception as e:
         log('ERROR', f'服务器启动失败: {str(e)}')
     finally:
